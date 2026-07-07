@@ -83,13 +83,12 @@ module Migrations
             end
           end
         ensure
-          # If the wait loop raises (e.g. Ctrl-C in `@condition.wait`), the
-          # coordinator threads and the consolidator are still running. Join and
-          # drain them before `Base#run`'s ensure tears down the IntermediateDB
-          # and shard directories out from under them. Under fork mode Ctrl-C
-          # reaches the children (same process group), so the join is quick; under
-          # --no-fork the inline step finishes first, which we accept — killing a
-          # thread mid-write is worse.
+          # The wait loop can raise (Ctrl-C lands in `@condition.wait`) while the
+          # coordinator threads and the consolidator still run; join and drain
+          # them before `Base#run`'s ensure tears down the IntermediateDB and
+          # shards under them. Ctrl-C reaches the forked children too (same
+          # process group), so the join is quick; under --no-fork the inline step
+          # finishes first — accepted, killing a thread mid-write is worse.
           @threads.each(&:join)
           # Every step is done, but the background merges may still be catching
           # up. Show a "finishing up" status until they drain, so the display
