@@ -216,6 +216,15 @@ export default class FKFieldData extends Component {
   }
 
   /**
+   * Indicates whether a control that renders its own title (e.g. the checkbox)
+   * should render it. Defaults to `true`.
+   * @type {boolean}
+   */
+  get showControlTitle() {
+    return this.args.showControlTitle ?? true;
+  }
+
+  /**
    * Indicates whether to show the `(optional)` marker next to the title when
    * the field has no `required` validation rule.
    * Defaults to `true`.

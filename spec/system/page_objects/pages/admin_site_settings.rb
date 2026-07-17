@@ -74,7 +74,12 @@ module PageObjects
 
       def toggle_bool_setting(setting_name)
         setting = find_setting(setting_name)
-        setting.find(".setting-value input[type='checkbox']").click
+        checkbox = setting.find(".setting-value input[type='checkbox']", visible: :all)
+        if checkbox.visible?
+          checkbox.click
+        else
+          setting.find(".form-kit__control-checkbox-label").click
+        end
         save_setting(setting)
       end
 
@@ -171,7 +176,7 @@ module PageObjects
       end
 
       def has_disabled_input?(setting_name)
-        find_setting(setting_name).has_css?("input[disabled]")
+        find_setting(setting_name).has_css?("input[disabled]", visible: :all)
       end
 
       def has_visible_reorder_buttons?(setting_name)
