@@ -11,6 +11,10 @@ require "securerandom"
 require_relative "../lib/chrome_installed_checker"
 
 class QunitRunner
+  DEFAULT_BROWSER_START_TIMEOUT = 45
+  DEFAULT_BROWSER_INACTIVITY_TIMEOUT = 30
+  DEFAULT_BROWSER_START_ATTEMPTS = 3
+
   def initialize(args)
     @file_paths = []
     @verbose = ENV["ACTIONS_STEP_DEBUG"] == "true"
@@ -29,6 +33,13 @@ class QunitRunner
     @plugin_targets = []
 
     @headless = true
+    @browser_watchdog = boolean_env("QUNIT_BROWSER_WATCHDOG", default: true)
+    @browser_start_timeout =
+      positive_integer_env("QUNIT_BROWSER_START_TIMEOUT", DEFAULT_BROWSER_START_TIMEOUT)
+    @browser_inactivity_timeout =
+      positive_integer_env("QUNIT_BROWSER_INACTIVITY_TIMEOUT", DEFAULT_BROWSER_INACTIVITY_TIMEOUT)
+    @browser_start_attempts =
+      positive_integer_env("QUNIT_BROWSER_START_ATTEMPTS", DEFAULT_BROWSER_START_ATTEMPTS)
 
     parse_options(args)
   end
@@ -59,6 +70,11 @@ class QunitRunner
         opts.on("-f", "--filter FILTER", "Run tests matching this filter") do |filter|
           @filter = filter
         end
+
+        opts.on(
+          "--filter-regex PATTERN",
+          "Run tests matching this case-insensitive JavaScript regular expression",
+        ) { |pattern| @filter_regex = pattern }
 
         opts.on("--dry-run", "Show what would run without executing") { @dry_run = true }
 
@@ -112,6 +128,33 @@ class QunitRunner
           @headless = h
         end
 
+        opts.on(
+          "--[no-]browser-watchdog",
+          "Detect stalled browser startup and test loading (env: QUNIT_BROWSER_WATCHDOG)",
+        ) { |enabled| @browser_watchdog = enabled }
+
+        opts.on(
+          "--browser-start-timeout SECONDS",
+          Integer,
+          "Browser connection timeout (default: 45; env: QUNIT_BROWSER_START_TIMEOUT)",
+        ) do |seconds|
+          @browser_start_timeout = positive_integer(seconds, "--browser-start-timeout")
+        end
+
+        opts.on(
+          "--browser-inactivity-timeout SECONDS",
+          Integer,
+          "Browser inactivity timeout outside active tests (default: 30; env: QUNIT_BROWSER_INACTIVITY_TIMEOUT)",
+        ) do |seconds|
+          @browser_inactivity_timeout = positive_integer(seconds, "--browser-inactivity-timeout")
+        end
+
+        opts.on(
+          "--browser-start-attempts COUNT",
+          Integer,
+          "Total browser start attempts (default: 3; env: QUNIT_BROWSER_START_ATTEMPTS)",
+        ) { |count| @browser_start_attempts = positive_integer(count, "--browser-start-attempts") }
+
         opts.on("-v", "--verbose", "Verbose output") { @verbose = true }
 
         opts.on("-h", "--help", "Show this help message") do
@@ -126,7 +169,8 @@ class QunitRunner
             bin/qunit --standalone --target plugins  # Run all plugin tests
             bin/qunit --standalone --target chat     # Run single plugin tests
             bin/qunit --standalone plugins/chat/test/javascripts/unit/lib/chat-audio-test.js
-            bin/qunit --standalone --filter "Acceptance: Emoji"
+            bin/qunit --standalone --filter 'Integration | ui-kit | DButton'
+            bin/qunit --standalone --filter-regex 'DButton|DIconGridPicker'
         NOTES
       end
 
@@ -138,6 +182,8 @@ class QunitRunner
       puts parser
       exit 1
     end
+
+    abort "Error: Use either --filter or --filter-regex, not both" if @filter && @filter_regex
 
     ensure_supported_target!
 
@@ -211,10 +257,10 @@ class QunitRunner
 
     file_path_filter = build_file_path_filter(@file_paths)
 
-    run_ember_exam(file_path_filter: file_path_filter, filter: @filter)
+    run_ember_exam(file_path_filter: file_path_filter)
   end
 
-  def run_ember_exam(filter: nil, file_path_filter: nil)
+  def run_ember_exam(file_path_filter: nil)
     check_dev_environment!
 
     puts "\nRunning tests against Rails on localhost:#{@rails_port}"
@@ -225,7 +271,8 @@ class QunitRunner
     elsif file_path_filter
       puts "  Filtered by file path" if file_path_filter
     end
-    puts "  Filter: #{filter}" if filter
+    puts "  Filter: #{@filter}" if @filter
+    puts "  Filter regex: #{@filter_regex}" if @filter_regex
     puts "  Load plugins: #{should_load_plugins?}"
     puts ""
 
@@ -243,6 +290,10 @@ class QunitRunner
     env["TESTEM_DEFAULT_BROWSER"] = ENV["TESTEM_DEFAULT_BROWSER"] || detect_browser
     env["PLUGIN_TARGETS"] = @plugin_targets.join(",") if @plugin_targets.any?
     env["QUNIT_HEADLESS"] = "0" if !@headless
+    env["QUNIT_BROWSER_WATCHDOG"] = @browser_watchdog ? "1" : "0"
+    env["QUNIT_BROWSER_START_TIMEOUT"] = @browser_start_timeout.to_s
+    env["QUNIT_BROWSER_INACTIVITY_TIMEOUT"] = @browser_inactivity_timeout.to_s
+    env["QUNIT_BROWSER_START_ATTEMPTS"] = @browser_start_attempts.to_s
 
     parallel = !@plugin_targets.any? && present_string(@parallel)
     reuse_build = ENV["QUNIT_REUSE_BUILD"] == "1" || !@standalone_mode
@@ -259,7 +310,6 @@ class QunitRunner
     else
       args = %w[pnpm ember exam]
       args += ["--query", query] if query && !query.empty?
-      args += ["--filter", filter] if filter
       args += ["--file-path", file_path_filter] if file_path_filter
       args += ["--load-balance", "--parallel", parallel.to_s] if parallel
       args += ["--random", resolved_seed]
@@ -277,8 +327,27 @@ class QunitRunner
       exit 0
     end
 
-    system(env, *args, chdir: dir)
-    exit $?.exitstatus
+    browser_start_failure_file =
+      File.join(rails_root, "tmp", "qunit_browser_start_failure_#{Process.pid}.marker")
+    env["QUNIT_BROWSER_START_FAILURE_FILE"] = browser_start_failure_file
+    attempts = @browser_watchdog ? @browser_start_attempts : 1
+    exit_status = nil
+
+    begin
+      1.upto(attempts) do |attempt|
+        FileUtils.rm_f(browser_start_failure_file)
+        system(env, *args, chdir: dir)
+        exit_status = $?.exitstatus
+        break if exit_status == 0
+        break unless File.exist?(browser_start_failure_file) && attempt < attempts
+
+        warn "Browser failed to connect; retrying (attempt #{attempt + 1}/#{attempts})"
+      end
+    ensure
+      FileUtils.rm_f(browser_start_failure_file)
+    end
+
+    exit exit_status
   end
 
   def convert_to_ember_relative_path(file_path)
@@ -525,6 +594,10 @@ class QunitRunner
       params["seed"] = resolved_seed
     end
     params["module"] = @module if @module
+    if @filter || @filter_regex
+      params["discourseTestFilter"] = @filter || @filter_regex
+      params["discourseTestFilterMode"] = @filter ? "literal" : "regex"
+    end
     params["theme_name"] = @theme_name if @theme_name
     params["theme_url"] = @theme_url if @theme_url
     params["theme_id"] = @theme_id if @theme_id
@@ -608,6 +681,28 @@ class QunitRunner
 
     str = value.to_s
     str.empty? ? nil : str
+  end
+
+  def boolean_env(name, default:)
+    value = ENV[name]
+    return default if value.nil?
+    return true if %w[1 true].include?(value.downcase)
+    return false if %w[0 false].include?(value.downcase)
+
+    abort "Error: #{name} must be one of: 1, 0, true, false"
+  end
+
+  def positive_integer_env(name, default)
+    value = ENV[name]
+    return default if value.nil?
+
+    positive_integer(Integer(value, exception: false), name)
+  end
+
+  def positive_integer(value, name)
+    abort "Error: #{name} must be greater than 0" if !value || value <= 0
+
+    value
   end
 
   def resolve_plugin_namespace(directory_name)
