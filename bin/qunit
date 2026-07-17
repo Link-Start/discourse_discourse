@@ -75,9 +75,11 @@ class QunitRunner
         opts.separator ""
         opts.separator "Options:"
 
-        opts.on("-f", "--filter FILTER", "Run tests matching this filter") do |filter|
-          @filter = filter
-        end
+        opts.on(
+          "-f",
+          "--filter FILTER",
+          "Run tests whose \"module: test name\" contains this literal, case-insensitive substring",
+        ) { |filter| @filter = filter }
 
         opts.on(
           "--filter-regex PATTERN",
