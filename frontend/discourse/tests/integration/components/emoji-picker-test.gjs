@@ -74,6 +74,20 @@ module("Integration | Component | EmojiPickerContent", function (hooks) {
     );
   });
 
+  test("requesting an early section does not eagerly expand later ones", async function (assert) {
+    await render(<template><Content /></template>);
+
+    // jumping to the top section leaves room below it, so trailing sections stay
+    // collapsed rather than all rendering up front
+    await click(`.emoji-picker__section-btn[data-section="favorites"]`);
+
+    assert
+      .dom('img.emoji[data-emoji="man_rowing_boat"]')
+      .doesNotExist(
+        "later sections are only expanded when needed to fill the panel"
+      );
+  });
+
   test("When filtering emojis", async function (assert) {
     await render(<template><Content /></template>);
     await fillIn(".filter-input", "grin");
