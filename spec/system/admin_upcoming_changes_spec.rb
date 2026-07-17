@@ -575,6 +575,7 @@ describe "Admin upcoming changes" do
       expect(
         settings_page.find_setting(:limit_suggested_to_category).find(
           ".setting-value input[type=checkbox]",
+          visible: :all,
         ),
       ).to be_checked
 
@@ -604,6 +605,7 @@ describe "Admin upcoming changes" do
       expect(
         settings_page.find_setting(:limit_suggested_to_category).find(
           ".setting-value input[type=checkbox]",
+          visible: :all,
         ),
       ).not_to be_checked
     end
