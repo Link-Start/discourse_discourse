@@ -203,9 +203,9 @@ describe "bin/qunit" do
 
     expect(result.status).to eq(0)
     expect(result.args).not_to include("--filter")
-    expect(result.query["discourseTestFilter"]).to eq("Integration | ui-kit | DButton")
+    expect(result.query["filter"]).to eq("Integration | ui-kit | DButton")
     expect(result.query["discourseTestFilterMode"]).to eq("literal")
-    expect(result.query).not_to have_key("filter")
+    expect(result.query).not_to have_key("discourseTestFilter")
   end
 
   it "treats pipes in --filter-regex as alternation" do
@@ -213,9 +213,9 @@ describe "bin/qunit" do
 
     expect(result.status).to eq(0)
     expect(result.args).not_to include("--filter")
-    expect(result.query["discourseTestFilter"]).to eq("DButton|DIconGridPicker")
+    expect(result.query["filter"]).to eq("DButton|DIconGridPicker")
     expect(result.query["discourseTestFilterMode"]).to eq("regex")
-    expect(result.query).not_to have_key("filter")
+    expect(result.query).not_to have_key("discourseTestFilter")
   end
 
   it "rejects combining literal and regex filters" do

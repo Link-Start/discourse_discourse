@@ -595,7 +595,7 @@ class QunitRunner
     end
     params["module"] = @module if @module
     if @filter || @filter_regex
-      params["discourseTestFilter"] = @filter || @filter_regex
+      params["filter"] = @filter || @filter_regex
       params["discourseTestFilterMode"] = @filter ? "literal" : "regex"
     end
     params["theme_name"] = @theme_name if @theme_name

@@ -44,6 +44,7 @@ import {
   testsInitialized,
   testsTornDown,
 } from "discourse/tests/helpers/qunit-helpers";
+import configureTestFilter from "discourse/tests/helpers/configure-test-filter";
 import { configureRaiseOnDeprecation } from "discourse/tests/helpers/raise-on-deprecation";
 import { resetSettings } from "discourse/tests/helpers/site-settings";
 import {
@@ -223,7 +224,10 @@ export default async function setupTests(config) {
     );
   };
 
-  configureTestFilter();
+  configureTestFilter(
+    QUnit.config,
+    new URLSearchParams(window.location.search)
+  );
 
   // Stop the message bus so we don't get ajax calls
   window.MessageBus.stop();
@@ -394,21 +398,6 @@ export default async function setupTests(config) {
 function getUrlParameter(name) {
   const queryParams = new URLSearchParams(window.location.search);
   return queryParams.get(name);
-}
-
-function configureTestFilter() {
-  const filter = getUrlParameter("discourseTestFilter");
-  const mode = getUrlParameter("discourseTestFilterMode");
-
-  if (mode === "literal") {
-    const normalizedLiteral = filter.toLowerCase();
-    QUnit.config.testFilter = ({ module, testName }) =>
-      `${module}: ${testName}`.toLowerCase().includes(normalizedLiteral);
-  } else if (mode === "regex") {
-    const regex = new RegExp(filter, "i");
-    QUnit.config.testFilter = ({ module, testName }) =>
-      regex.test(`${module}: ${testName}`);
-  }
 }
 
 function patchFailedAssertion() {
