@@ -70,4 +70,17 @@ module("Unit | Helper | configure-test-filter", function () {
       "the second alternative matches"
     );
   });
+
+  test("throws a clear error for an invalid regex filter", function (assert) {
+    const config = { filter: "(" };
+    const queryParams = new URLSearchParams(
+      "filter=%28&discourseTestFilterMode=regex"
+    );
+
+    assert.throws(
+      () => configureTestFilter(config, queryParams),
+      /Invalid --filter-regex pattern: \(/,
+      "the malformed pattern is named in the error"
+    );
+  });
 });

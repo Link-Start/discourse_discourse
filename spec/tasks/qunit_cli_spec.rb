@@ -287,4 +287,65 @@ describe "bin/qunit" do
     expect(result.status).to eq(1)
     expect(result.err).to include("--browser-inactivity-timeout must be greater than 0")
   end
+
+  describe "QunitRunner.retry_browser_start?" do
+    # Load the script so `QunitRunner` is defined without executing its runner (the
+    # bottom-line invocation is guarded by `__FILE__ == $PROGRAM_NAME`).
+    load Rails.root.join("bin/qunit").to_s
+
+    it "retries when only a browser-start failure occurred" do
+      expect(
+        QunitRunner.retry_browser_start?(
+          start_failed: true,
+          test_failed: false,
+          attempt: 1,
+          attempts: 3,
+        ),
+      ).to eq(true)
+    end
+
+    it "does not retry when a test failure also occurred in the same attempt" do
+      expect(
+        QunitRunner.retry_browser_start?(
+          start_failed: true,
+          test_failed: true,
+          attempt: 1,
+          attempts: 3,
+        ),
+      ).to eq(false)
+    end
+
+    it "does not retry when only a test failure occurred" do
+      expect(
+        QunitRunner.retry_browser_start?(
+          start_failed: false,
+          test_failed: true,
+          attempt: 1,
+          attempts: 3,
+        ),
+      ).to eq(false)
+    end
+
+    it "does not retry when no failure marker is present" do
+      expect(
+        QunitRunner.retry_browser_start?(
+          start_failed: false,
+          test_failed: false,
+          attempt: 1,
+          attempts: 3,
+        ),
+      ).to eq(false)
+    end
+
+    it "does not retry on the final attempt" do
+      expect(
+        QunitRunner.retry_browser_start?(
+          start_failed: true,
+          test_failed: false,
+          attempt: 3,
+          attempts: 3,
+        ),
+      ).to eq(false)
+    end
+  end
 end

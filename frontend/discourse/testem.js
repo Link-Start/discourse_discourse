@@ -55,11 +55,16 @@ class Reporter extends TapReporter {
   }
 
   report(prefix, data) {
-    const browserStartFailureFile =
-      process.env.QUNIT_BROWSER_START_FAILURE_FILE;
+    // Record browser-start failures and real test failures under separate markers so the
+    // retry loop can retry only when the browser never connected, without masking a genuine
+    // test failure that occurred in the same (parallel) run.
     patchTestemBrowserWatchdog.markBrowserStartFailure(
       data,
-      browserStartFailureFile
+      process.env.QUNIT_BROWSER_START_FAILURE_FILE
+    );
+    patchTestemBrowserWatchdog.markBrowserTestFailure(
+      data,
+      process.env.QUNIT_BROWSER_TEST_FAILURE_FILE
     );
 
     if (data.failed) {

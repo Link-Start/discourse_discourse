@@ -77,11 +77,28 @@ function patchTestemBrowserWatchdog() {
   });
 }
 
+function isBrowserStartFailure(result) {
+  // testem's to-result.js reports synthetic runner failures (including the browser-start
+  // timeout) with `name: "error"`; a real per-test result carries the test name. Requiring
+  // both the name and the message keeps an assertion whose text happens to contain the
+  // phrase from being misclassified as a retryable start failure.
+  return (
+    result.name === "error" &&
+    !!result.error?.message?.includes("Browser failed to connect within")
+  );
+}
+
 function markBrowserStartFailure(result, markerPath) {
-  if (
-    markerPath &&
-    result.error?.message?.includes("Browser failed to connect within")
-  ) {
+  if (markerPath && isBrowserStartFailure(result)) {
+    fs.writeFileSync(markerPath, "");
+    return true;
+  }
+
+  return false;
+}
+
+function markBrowserTestFailure(result, markerPath) {
+  if (markerPath && result.failed && !isBrowserStartFailure(result)) {
     fs.writeFileSync(markerPath, "");
     return true;
   }
@@ -92,3 +109,4 @@ function markBrowserStartFailure(result, markerPath) {
 module.exports = patchTestemBrowserWatchdog;
 module.exports.installBrowserWatchdog = installBrowserWatchdog;
 module.exports.markBrowserStartFailure = markBrowserStartFailure;
+module.exports.markBrowserTestFailure = markBrowserTestFailure;

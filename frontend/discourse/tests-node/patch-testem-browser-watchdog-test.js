@@ -8,6 +8,7 @@ const { test } = require("node:test");
 const {
   installBrowserWatchdog,
   markBrowserStartFailure,
+  markBrowserTestFailure,
 } = require("../patch-testem-browser-watchdog");
 
 function setupWatchdog() {
@@ -112,7 +113,10 @@ test("marks only browser connection timeouts as retryable", () => {
   try {
     assert.equal(
       markBrowserStartFailure(
-        { error: { message: "Error: Browser failed to connect within 45s" } },
+        {
+          name: "error",
+          error: { message: "Error: Browser failed to connect within 45s" },
+        },
         markerPath
       ),
       true
@@ -122,7 +126,103 @@ test("marks only browser connection timeouts as retryable", () => {
     fs.rmSync(markerPath);
     assert.equal(
       markBrowserStartFailure(
-        { error: { message: "Expected true to equal false" } },
+        { name: "error", error: { message: "Expected true to equal false" } },
+        markerPath
+      ),
+      false
+    );
+    assert.equal(fs.existsSync(markerPath), false);
+  } finally {
+    fs.rmSync(markerPath, { force: true });
+  }
+});
+
+test("does not treat a test whose failure text mentions the timeout as a start failure", () => {
+  const markerPath = path.join(
+    os.tmpdir(),
+    `qunit-browser-start-failure-name-${process.pid}`
+  );
+
+  try {
+    // A real per-test result carries the test name, not "error", even if its assertion
+    // message happens to contain the browser-start phrase.
+    assert.equal(
+      markBrowserStartFailure(
+        {
+          name: "asserts Browser failed to connect within 45s",
+          failed: 1,
+          error: { message: "Browser failed to connect within 45s" },
+        },
+        markerPath
+      ),
+      false
+    );
+    assert.equal(fs.existsSync(markerPath), false);
+  } finally {
+    fs.rmSync(markerPath, { force: true });
+  }
+});
+
+test("marks a genuine test failure under the test-failure marker", () => {
+  const markerPath = path.join(
+    os.tmpdir(),
+    `qunit-browser-test-failure-${process.pid}`
+  );
+
+  try {
+    assert.equal(
+      markBrowserTestFailure(
+        {
+          name: "renders the button",
+          failed: 1,
+          error: { message: "Expected true to equal false" },
+        },
+        markerPath
+      ),
+      true
+    );
+    assert.equal(fs.existsSync(markerPath), true);
+  } finally {
+    fs.rmSync(markerPath, { force: true });
+  }
+});
+
+test("does not mark a browser-start failure as a test failure", () => {
+  const markerPath = path.join(
+    os.tmpdir(),
+    `qunit-browser-test-failure-start-${process.pid}`
+  );
+
+  try {
+    // The browser-start result is reported as a failure too, but it belongs to the
+    // start-failure marker, not the test-failure marker.
+    assert.equal(
+      markBrowserTestFailure(
+        {
+          name: "error",
+          failed: 1,
+          error: { message: "Error: Browser failed to connect within 45s" },
+        },
+        markerPath
+      ),
+      false
+    );
+    assert.equal(fs.existsSync(markerPath), false);
+  } finally {
+    fs.rmSync(markerPath, { force: true });
+  }
+});
+
+test("does not mark a passing result as a test failure", () => {
+  const markerPath = path.join(
+    os.tmpdir(),
+    `qunit-browser-test-failure-pass-${process.pid}`
+  );
+
+  try {
+    assert.equal(
+      markBrowserTestFailure(
+        { name: "renders the button", failed: 0 },
         markerPath
       ),
       false
