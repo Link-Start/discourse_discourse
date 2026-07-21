@@ -8,39 +8,54 @@ module Jobs
       url = args[:pr_url]
       return if url.blank?
 
-      Oneboxer.preview(url, invalidate_oneboxes: true)
-      InlineOneboxer.invalidate(url)
-
       rebake_posts(url)
       rebake_chat_messages(url) if SiteSetting.chat_enabled
     end
 
     private
 
+    # anchored so /pull/12 does not match /pull/123
+    def pr_links(relation, url)
+      escaped = ActiveRecord::Base.sanitize_sql_like(url)
+      relation.where(
+        "url = :url OR url LIKE :path OR url LIKE :query OR url LIKE :fragment",
+        url:,
+        path: "#{escaped}/%",
+        query: "#{escaped}?%",
+        fragment: "#{escaped}#%",
+      )
+    end
+
+    # oneboxes are cached per exact URL, which may differ from the webhook's canonical URL
+    def invalidate_onebox_caches(urls)
+      urls.each do |url|
+        Oneboxer.invalidate(url)
+        InlineOneboxer.invalidate(url)
+      end
+    end
+
     def rebake_posts(url)
-      post_ids = TopicLink.where(url:).or(TopicLink.where("url LIKE ?", "#{url}%")).select(:post_id)
+      links = pr_links(TopicLink, url)
+      invalidate_onebox_caches(links.distinct.pluck(:url))
 
       Post
-        .where(id: post_ids)
+        .where(id: links.select(:post_id))
         .where(
           "cooked LIKE :pattern AND (cooked LIKE '%githubpullrequest%' OR cooked LIKE '%inline-onebox%')",
-          pattern: "%#{url}%",
+          pattern: "%#{ActiveRecord::Base.sanitize_sql_like(url)}%",
         )
         .find_each { |post| post.rebake!(priority: :low, skip_publish_rebaked_changes: true) }
     end
 
     def rebake_chat_messages(url)
-      message_ids =
-        ::Chat::MessageLink
-          .where(url:)
-          .or(::Chat::MessageLink.where("url LIKE ?", "#{url}%"))
-          .select(:chat_message_id)
+      links = pr_links(::Chat::MessageLink, url)
+      invalidate_onebox_caches(links.distinct.pluck(:url))
 
       ::Chat::Message
-        .where(id: message_ids)
+        .where(id: links.select(:chat_message_id))
         .where(
           "cooked LIKE :pattern AND (cooked LIKE '%githubpullrequest%' OR cooked LIKE '%inline-onebox%')",
-          pattern: "%#{url}%",
+          pattern: "%#{ActiveRecord::Base.sanitize_sql_like(url)}%",
         )
         .find_each { |message| message.rebake!(priority: :low, skip_notifications: true) }
     end
