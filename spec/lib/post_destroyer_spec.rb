@@ -701,6 +701,27 @@ RSpec.describe PostDestroyer do
       expect(post.raw).to eq(I18n.t("js.post.deleted_by_author_simple"))
     end
 
+    it "replaces each localization with the author-deletion notice in its locale" do
+      reply = create_post(topic_id: post.topic_id, user: post.user, locale: "en")
+      japanese_localization = Fabricate(:post_localization, post: reply, locale: "ja")
+      german_localization = Fabricate(:post_localization, post: reply, locale: "de")
+
+      PostDestroyer.new(post.user, reply, delete_removed_posts_after: 1).destroy
+
+      japanese_notice = I18n.with_locale(:ja) { I18n.t("js.post.deleted_by_author_simple") }
+      german_notice = I18n.with_locale(:de) { I18n.t("js.post.deleted_by_author_simple") }
+      post_version = reply.reload.version
+      expect(
+        [japanese_localization, german_localization].map do |localization|
+          localization.reload
+          [localization.locale, localization.raw, localization.cooked, localization.post_version]
+        end,
+      ).to contain_exactly(
+        ["ja", japanese_notice, PrettyText.cook(japanese_notice), post_version],
+        ["de", german_notice, PrettyText.cook(german_notice), post_version],
+      )
+    end
+
     it "runs the SyncTopicUserBookmarked for the topic that the post is in so topic_users.bookmarked is correct" do
       post2 = create_post
       PostDestroyer.new(post2.user, post2).destroy
@@ -738,6 +759,18 @@ RSpec.describe PostDestroyer do
         author.reload
         expect(author.post_count).to eq(post_count - 1)
         expect(UserHistory.count).to eq(history_count + 1)
+      end
+
+      it "preserves localized content" do
+        reply = create_post(topic_id: post.topic_id, user: post.user, locale: "en")
+        localization = Fabricate(:post_localization, post: reply, locale: "ja")
+        original_attributes = localization.attributes.slice("raw", "cooked", "post_version")
+
+        PostDestroyer.new(moderator, reply).destroy
+
+        expect(localization.reload.attributes.slice("raw", "cooked", "post_version")).to eq(
+          original_attributes,
+        )
       end
 
       it "links the staff action log to the reviewable when passed via opts" do

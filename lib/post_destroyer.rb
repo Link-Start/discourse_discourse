@@ -287,6 +287,15 @@ class PostDestroyer
         @post.topic_links.each(&:destroy)
         @post.topic.update_column(:closed, true) if @post.is_first_post?
       end
+
+      @post.localizations.find_each do |localization|
+        I18n.with_locale(localization.locale) do
+          raw = I18n.t(key)
+          localization.update!(raw:, cooked: PrettyText.cook(raw), post_version: @post.version)
+        end
+
+        Jobs.enqueue(:process_localized_cooked, post_localization_id: localization.id)
+      end
     end
   end
 

@@ -4849,6 +4849,36 @@ RSpec.describe TopicsController do
 
           expect(posts.first["cooked"]).to eq("<p>Translated 2 EN</p>")
         end
+
+        it "returns a localized deletion notice instead of a stale translation for an author-deleted post" do
+          viewer = Fabricate(:user, locale: "ja")
+          deleted_post =
+            Fabricate(
+              :post,
+              user:,
+              topic: localized_topic,
+              locale: "en",
+              cooked: "<p>Original 3 EN</p>",
+            )
+          Fabricate(
+            :post_localization,
+            post: deleted_post,
+            locale: "ja",
+            cooked: "<p>Translated 3 JA</p>",
+          )
+          PostDestroyer.new(user, deleted_post, delete_removed_posts_after: 1).destroy
+          sign_in(viewer)
+
+          get "/t/#{localized_topic.id}/posts.json", params: { post_ids: [deleted_post.id] }
+
+          expect(response.status).to eq(200)
+          deletion_notice =
+            I18n.with_locale(viewer.locale) do
+              PrettyText.cook(I18n.t("js.post.deleted_by_author_simple"))
+            end
+          serialized_post = response.parsed_body["post_stream"]["posts"].first
+          expect(serialized_post["cooked"]).to eq(deletion_notice)
+        end
       end
 
       context "when show_original cookie is set" do
